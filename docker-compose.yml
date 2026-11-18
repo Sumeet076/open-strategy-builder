@@ -1,0 +1,100 @@
+version: '3.8'
+
+services:
+  # Frontend - React + Vite
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - VITE_API_URL=http://backend:8000/api/v1
+    depends_on:
+      - backend
+    networks:
+      - strategy-builder-network
+
+  # Backend - FastAPI
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - ./python:/app/python
+    environment:
+      - PYTHONPATH=/app:/app/python
+      - REDIS_URL=redis://redis:6379
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/strategy_builder
+    depends_on:
+      - redis
+      - db
+    networks:
+      - strategy-builder-network
+
+  # Python Pricing Engine (can be scaled separately)
+  pricing-engine:
+    build:
+      context: ./python
+      dockerfile: Dockerfile
+    ports:
+      - "8001:8000"
+    volumes:
+      - ./python:/app
+    environment:
+      - PYTHONPATH=/app
+    networks:
+      - strategy-builder-network
+
+  # Redis for caching and WebSocket pub/sub
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - strategy-builder-network
+
+  # PostgreSQL for persistence
+  db:
+    image: postgres:15-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=strategy_builder
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - strategy-builder-network
+
+  # Nginx reverse proxy (production)
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - strategy-builder-network
+
+networks:
+  strategy-builder-network:
+    driver: bridge
+
+volumes:
+  redis_data:
+  postgres_data:
